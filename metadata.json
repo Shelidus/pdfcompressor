@@ -1,0 +1,6 @@
+{
+  "name": "PDF Compressor & Optimizer",
+  "description": "Production-grade PDF compression, optimization, and conversion platform with smart analysis, visual comparison, batch processing, and privacy controls.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
