@@ -64,6 +64,40 @@ export const ResultScreen: React.FC<ResultScreenProps> = ({
         </p>
       </div>
 
+      {/* Target Size Mode Status Banner */}
+      {result.targetSizeMB && (() => {
+        const targetBytes = Math.round(result.targetSizeMB * 1024 * 1024);
+        const isTrulyMet = Boolean(result.targetMet && result.compressedSize <= targetBytes + 10);
+        return (
+          <div
+            className={`p-4 rounded-2xl mb-6 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 border ${
+              isTrulyMet
+                ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                : 'bg-amber-50 border-amber-200 text-amber-900'
+            }`}
+          >
+            <div className="flex items-center gap-2.5">
+              <Zap className={`w-5 h-5 shrink-0 ${isTrulyMet ? 'text-emerald-600' : 'text-amber-600'}`} />
+              <div>
+                <span className="font-bold text-sm block">
+                  {isTrulyMet ? '🎯 Target Size Achieved!' : '⚡ Maximum Compression Applied'}
+                </span>
+                <p className="mt-0.5">
+                  Requested Target: <strong>{formatSize(targetBytes)}</strong> • Output Size: <strong>{formatSize(result.compressedSize)}</strong>
+                </p>
+              </div>
+            </div>
+            <span
+              className={`px-3 py-1.5 font-bold text-xs rounded-xl uppercase tracking-wider shrink-0 text-center ${
+                isTrulyMet ? 'bg-emerald-600 text-white' : 'bg-amber-600 text-white'
+              }`}
+            >
+              {isTrulyMet ? 'Target Met ✓' : 'Best Possible Reduction'}
+            </span>
+          </div>
+        );
+      })()}
+
       {/* Main Metric Cards Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
         {/* Metric 1: Size Before -> After */}

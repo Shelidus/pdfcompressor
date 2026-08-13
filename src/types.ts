@@ -61,6 +61,8 @@ export interface CompressionResult {
   compressedArrayBuffer?: ArrayBuffer;
   warnings?: string[];
   isWorseThanOriginal?: boolean;
+  targetSizeMB?: number;
+  targetMet?: boolean;
 }
 
 export type ProcessingStatus = 'idle' | 'analyzing' | 'compressing' | 'completed' | 'error';

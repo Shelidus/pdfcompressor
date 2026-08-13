@@ -26,6 +26,73 @@ export const CompressionSettingsSelector: React.FC<CompressionSettingsSelectorPr
 }) => {
   const [showAdvanced, setShowAdvanced] = useState(false);
 
+  // Local state for custom target size typing
+  const [customInputVal, setCustomInputVal] = useState<string>(() => {
+    if (settings.targetSizeMB) {
+      if (settings.targetSizeMB < 1) {
+        return String(Math.round(settings.targetSizeMB * 1024));
+      }
+      return String(settings.targetSizeMB);
+    }
+    return '10';
+  });
+
+  const [customUnit, setCustomUnit] = useState<'KB' | 'MB'>(() => {
+    if (settings.targetSizeMB && settings.targetSizeMB >= 1) {
+      return 'MB';
+    }
+    return 'KB';
+  });
+
+  const handleCustomInputChange = (valueStr: string, unit: 'KB' | 'MB') => {
+    setCustomInputVal(valueStr);
+    const num = parseFloat(valueStr);
+    if (!isNaN(num) && num > 0) {
+      const computedMB = unit === 'KB' ? num / 1024 : num;
+      onChange({
+        ...settings,
+        targetMode: 'target_size',
+        targetSizeMB: computedMB,
+      });
+    }
+  };
+
+  const handleUnitToggle = (newUnit: 'KB' | 'MB') => {
+    setCustomUnit(newUnit);
+    const num = parseFloat(customInputVal);
+    if (!isNaN(num) && num > 0) {
+      const computedMB = newUnit === 'KB' ? num / 1024 : num;
+      onChange({
+        ...settings,
+        targetMode: 'target_size',
+        targetSizeMB: computedMB,
+      });
+    }
+  };
+
+  const handlePresetSelect = (numVal: number, unit: 'KB' | 'MB') => {
+    setCustomInputVal(String(numVal));
+    setCustomUnit(unit);
+    const computedMB = unit === 'KB' ? numVal / 1024 : numVal;
+    onChange({
+      ...settings,
+      targetMode: 'target_size',
+      targetSizeMB: computedMB,
+    });
+  };
+
+  const presets = [
+    { label: '10 KB', num: 10, unit: 'KB' as const, sizeMB: 10 / 1024 },
+    { label: '20 KB', num: 20, unit: 'KB' as const, sizeMB: 20 / 1024 },
+    { label: '50 KB', num: 50, unit: 'KB' as const, sizeMB: 50 / 1024 },
+    { label: '100 KB', num: 100, unit: 'KB' as const, sizeMB: 100 / 1024 },
+    { label: '500 KB', num: 500, unit: 'KB' as const, sizeMB: 500 / 1024 },
+    { label: '850 KB', num: 850, unit: 'KB' as const, sizeMB: 850 / 1024 },
+    { label: '1 MB', num: 1, unit: 'MB' as const, sizeMB: 1 },
+    { label: '2 MB', num: 2, unit: 'MB' as const, sizeMB: 2 },
+    { label: '5 MB', num: 5, unit: 'MB' as const, sizeMB: 5 },
+  ];
+
   const handleLevelSelect = (level: CompressionLevel) => {
     let updated: CompressionSettings = { ...settings, level };
 
@@ -79,76 +146,176 @@ export const CompressionSettingsSelector: React.FC<CompressionSettingsSelectorPr
     };
   };
 
+  // Helper to format current active target
+  const activeTargetMB = settings.targetSizeMB || 0.01;
+  const activeTargetKB = Math.round(activeTargetMB * 1024);
+  const activeTargetBytes = Math.round(activeTargetMB * 1024 * 1024);
+
   return (
     <div className="bg-white border border-slate-100 rounded-3xl p-6 shadow-sm mb-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5 border-b border-slate-100 pb-4">
-        <div>
-          <h3 className="font-bold text-slate-800 text-lg flex items-center gap-2">
-            <Zap className="w-5 h-5 text-indigo-600" />
-            Compression Strategy
-          </h3>
-          <p className="text-xs text-slate-500 font-medium">
-            Choose how aggressively to optimize file size vs visual quality.
-          </p>
-        </div>
+      <div className="mb-5 border-b border-slate-100 pb-4">
+        <h3 className="font-bold text-slate-800 text-lg flex items-center gap-2 mb-1">
+          <Zap className="w-5 h-5 text-indigo-600" />
+          Compression Strategy
+        </h3>
+        <p className="text-xs text-slate-500 font-medium">
+          Type an exact custom file size (e.g. 10 KB, 50 KB) or select a quality level preset.
+        </p>
 
-        {/* Target Size Mode Switch */}
-        <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200/60 text-xs font-semibold">
+        {/* Prominent Full-Width Strategy Mode Selector */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 p-1.5 bg-slate-100 rounded-2xl border border-slate-200/80 mt-4">
           <button
-            onClick={() => onChange({ ...settings, targetMode: 'preset' })}
-            className={`px-3 py-1.5 rounded-lg transition-all ${
-              settings.targetMode === 'preset'
-                ? 'bg-white text-indigo-600 shadow-xs font-bold'
-                : 'text-slate-500 hover:text-slate-800'
-            }`}
-            id="btn-mode-preset"
-          >
-            Presets
-          </button>
-          <button
-            onClick={() => onChange({ ...settings, targetMode: 'target_size', targetSizeMB: settings.targetSizeMB || 2 })}
-            className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
+            type="button"
+            onClick={() => {
+              const num = parseFloat(customInputVal) || 10;
+              const computedMB = customUnit === 'KB' ? num / 1024 : num;
+              onChange({ ...settings, targetMode: 'target_size', targetSizeMB: computedMB });
+            }}
+            className={`py-3 px-4 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-2 transition-all ${
               settings.targetMode === 'target_size'
-                ? 'bg-white text-indigo-600 shadow-xs font-bold'
-                : 'text-slate-500 hover:text-slate-800'
+                ? 'bg-indigo-600 text-white shadow-xs ring-2 ring-indigo-500/30'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
             }`}
             id="btn-mode-target-size"
           >
-            <Target className="w-3.5 h-3.5 text-indigo-600" />
-            Target Size Mode
+            <Target className="w-4 h-4" />
+            <span>Type Exact Size (e.g., 10 KB)</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => onChange({ ...settings, targetMode: 'preset' })}
+            className={`py-3 px-4 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-2 transition-all ${
+              settings.targetMode === 'preset'
+                ? 'bg-white text-slate-900 shadow-xs ring-2 ring-slate-300'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
+            }`}
+            id="btn-mode-preset"
+          >
+            <Zap className="w-4 h-4 text-indigo-600" />
+            <span>Quality Presets (Max / Balanced)</span>
           </button>
         </div>
       </div>
 
       {/* TARGET SIZE MODE SELECTOR */}
       {settings.targetMode === 'target_size' ? (
-        <div className="p-5 bg-indigo-50/50 border border-indigo-200/80 rounded-2xl mb-5 space-y-3">
-          <div className="flex items-center gap-2">
-            <Target className="w-5 h-5 text-indigo-600 shrink-0" />
-            <div>
-              <h4 className="font-bold text-slate-900 text-sm">Target File Size</h4>
-              <p className="text-xs text-slate-600">
-                The engine will iteratively tune quality and downsampling parameters to compress your file under this limit.
-              </p>
+        <div className="p-5 bg-indigo-50/40 border border-indigo-200/80 rounded-2xl mb-5 space-y-4">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-xl bg-indigo-600 text-white flex items-center justify-center shrink-0">
+                <Target className="w-4 h-4" />
+              </div>
+              <div>
+                <h4 className="font-bold text-slate-800 text-sm">Set Exact Target Size</h4>
+                <p className="text-xs text-slate-500">
+                  Type any custom target size in KB or MB (e.g. 10 KB, 50 KB, 100 KB, 2 MB).
+                </p>
+              </div>
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 pt-2">
-            {[0.5, 1, 2, 5, 10].map((sizeMB) => (
-              <button
-                key={sizeMB}
-                onClick={() => onChange({ ...settings, targetSizeMB: sizeMB })}
-                id={`btn-target-size-${sizeMB}mb`}
-                className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
-                  settings.targetSizeMB === sizeMB
-                    ? 'bg-indigo-600 text-white shadow-md shadow-indigo-500/20 scale-105'
-                    : 'bg-white text-slate-700 border border-slate-200 hover:border-indigo-300'
-                }`}
-              >
-                Under {sizeMB < 1 ? `${sizeMB * 1000} KB` : `${sizeMB} MB`}
-              </button>
-            ))}
+          {/* CUSTOM TYPED INPUT BOX WITH UNIT SELECTOR */}
+          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs space-y-3">
+            <label htmlFor="input-custom-target-size" className="text-xs font-bold text-slate-700 block">
+              Type Custom Target Limit:
+            </label>
+            <div className="flex items-center gap-2">
+              <div className="relative flex-1">
+                <input
+                  id="input-custom-target-size"
+                  type="number"
+                  min="1"
+                  step="any"
+                  value={customInputVal}
+                  onChange={(e) => handleCustomInputChange(e.target.value, customUnit)}
+                  placeholder="e.g. 10"
+                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-base text-slate-800 focus:ring-2 focus:ring-indigo-500/30 outline-none"
+                />
+              </div>
+
+              {/* KB / MB Unit Selector Buttons */}
+              <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs font-bold shrink-0">
+                <button
+                  type="button"
+                  onClick={() => handleUnitToggle('KB')}
+                  className={`px-3 py-2 rounded-lg transition-all ${
+                    customUnit === 'KB'
+                      ? 'bg-indigo-600 text-white shadow-2xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                  id="btn-unit-kb"
+                >
+                  KB
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleUnitToggle('MB')}
+                  className={`px-3 py-2 rounded-lg transition-all ${
+                    customUnit === 'MB'
+                      ? 'bg-indigo-600 text-white shadow-2xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                  id="btn-unit-mb"
+                >
+                  MB
+                </button>
+              </div>
+            </div>
+
+            {/* Target Display Status Banner */}
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs pt-1 border-t border-slate-100 text-slate-600">
+              <span className="font-semibold text-slate-700">
+                🎯 Target set to:{' '}
+                <span className="font-extrabold text-indigo-600">
+                  {activeTargetMB < 1 ? `${activeTargetKB} KB` : `${activeTargetMB.toFixed(2)} MB`}
+                </span>{' '}
+                <span className="text-slate-400 font-normal">({activeTargetBytes.toLocaleString()} bytes)</span>
+              </span>
+
+              {originalSizeBytes && (
+                <span className="text-slate-500 font-medium">
+                  Original: <span className="font-bold text-slate-700">{(originalSizeBytes / (1024 * 1024)).toFixed(2)} MB</span>
+                </span>
+              )}
+            </div>
           </div>
+
+          {/* Quick Preset Buttons */}
+          <div>
+            <span className="text-xs font-bold text-slate-600 mb-2 block">Quick Presets:</span>
+            <div className="flex flex-wrap items-center gap-2">
+              {presets.map((preset) => {
+                const isSelected =
+                  settings.targetSizeMB && Math.abs(settings.targetSizeMB - preset.sizeMB) < 0.0001;
+                return (
+                  <button
+                    key={preset.label}
+                    type="button"
+                    onClick={() => handlePresetSelect(preset.num, preset.unit)}
+                    id={`btn-target-preset-${preset.label.toLowerCase().replace(/\s+/g, '-')}`}
+                    className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                      isSelected
+                        ? 'bg-indigo-600 text-white shadow-xs scale-105'
+                        : 'bg-white text-slate-700 border border-slate-200 hover:border-indigo-300 hover:bg-slate-50'
+                    }`}
+                  >
+                    Under {preset.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Low Target Size Notice */}
+          {activeTargetKB <= 100 && (
+            <div className="p-3 bg-amber-50/80 border border-amber-200/60 rounded-xl text-xs text-amber-900 flex items-start gap-2">
+              <Info className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+              <p className="leading-relaxed">
+                <span className="font-bold text-amber-800">Ultra-low target ({activeTargetKB} KB):</span> The engine will apply maximum grayscale image downsampling, metadata stripping, and font subsetting to shrink your PDF under {activeTargetKB} KB.
+              </p>
+            </div>
+          )}
         </div>
       ) : (
         /* CARD-BASED LEVEL SELECTOR */

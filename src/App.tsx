@@ -37,8 +37,8 @@ export default function App() {
   // Global default compression settings
   const [settings, setSettings] = useState<CompressionSettings>({
     level: 'balanced',
-    targetMode: 'preset',
-    targetSizeMB: 2,
+    targetMode: 'target_size',
+    targetSizeMB: 0.1, // Default 100 KB
     jpegQuality: 75,
     dpi: 150,
     colorMode: 'original',

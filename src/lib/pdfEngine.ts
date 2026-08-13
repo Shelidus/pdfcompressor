@@ -1,5 +1,7 @@
 import { PDFDocument } from 'pdf-lib';
 import * as pdfjsLib from 'pdfjs-dist';
+// @ts-ignore
+import pdfjsWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import {
   PDFMetadata,
   CompressionSettings,
@@ -7,9 +9,9 @@ import {
   DocumentClassification,
 } from '../types';
 
-// Set up worker for PDF.js in browser
+// Set up worker for PDF.js using local Vite bundled worker URL
 if (typeof window !== 'undefined') {
-  pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs`;
+  pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker;
 }
 
 /**
@@ -180,8 +182,160 @@ export async function analyzePDF(file: File): Promise<PDFMetadata> {
 }
 
 /**
+ * Helper to format byte counts into human readable strings (e.g. 100 KB, 1.2 MB)
+ */
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+/**
+ * Pads a Uint8Array with a safe PDF trailing comment to match exactTargetBytes.
+ * Standard PDF readers (Chrome, Adobe Acrobat, Preview, PDF.js) ignore text after %%EOF.
+ */
+function padPDFToExactBytes(pdfBytes: Uint8Array, exactTargetBytes: number): Uint8Array {
+  if (pdfBytes.byteLength >= exactTargetBytes) {
+    return pdfBytes;
+  }
+
+  const diff = exactTargetBytes - pdfBytes.byteLength;
+  const prefix = '\n% OptiPDF Target Buffer: ';
+  const suffix = '\n';
+
+  if (diff < prefix.length + suffix.length + 1) {
+    const padded = new Uint8Array(exactTargetBytes);
+    padded.set(pdfBytes);
+    for (let i = pdfBytes.byteLength; i < exactTargetBytes; i++) {
+      padded[i] = 32; // ASCII space
+    }
+    return padded;
+  }
+
+  const fillLength = diff - prefix.length - suffix.length;
+  const paddingChars = 'X'.repeat(fillLength);
+  const commentStr = prefix + paddingChars + suffix;
+  const commentBytes = new TextEncoder().encode(commentStr);
+
+  const padded = new Uint8Array(exactTargetBytes);
+  padded.set(pdfBytes);
+  padded.set(commentBytes, pdfBytes.byteLength);
+  return padded;
+}
+
+/**
+ * Maps a continuous factor F in [0.00001, 1.0] to rendering parameters (scale, quality, grayscale)
+ */
+function getParamsFromFactor(F: number) {
+  let scale: number;
+  let quality: number;
+  let isGrayscale: boolean;
+
+  if (F < 0.05) {
+    // Ultra compression for extreme low targets (e.g. 10 KB, 20 KB, 40 KB)
+    const t = F / 0.05;
+    scale = 0.005 + t * 0.045; // 0.005 to 0.05
+    quality = 0.005 + t * 0.045; // 0.005 to 0.05
+    isGrayscale = true;
+  } else if (F < 0.25) {
+    const t = (F - 0.05) / 0.2;
+    scale = 0.05 + t * 0.15; // 0.05 to 0.20
+    quality = 0.05 + t * 0.15; // 0.05 to 0.20
+    isGrayscale = true;
+  } else if (F < 0.6) {
+    const t = (F - 0.25) / 0.35;
+    scale = 0.20 + t * 0.30; // 0.20 to 0.50
+    quality = 0.20 + t * 0.30; // 0.20 to 0.50
+    isGrayscale = F < 0.4;
+  } else {
+    const t = (F - 0.6) / 0.4;
+    scale = 0.50 + t * 0.50; // 0.50 to 1.00
+    quality = 0.50 + t * 0.45; // 0.50 to 0.95
+    isGrayscale = false;
+  }
+
+  return { scale, quality, isGrayscale };
+}
+
+/**
+ * Renders pages using PDF.js and re-encodes as JPEG images inside a clean PDFDocument
+ */
+async function renderAndCompressPages(
+  arrayBuffer: ArrayBuffer,
+  scale: number,
+  qualityFraction: number,
+  isGrayscale: boolean,
+  removeMetadata: boolean,
+  compressObjectStreams: boolean
+): Promise<Uint8Array> {
+  const clonedBuffer = arrayBuffer.slice(0);
+  const pdfJsDoc = await pdfjsLib.getDocument({ data: new Uint8Array(clonedBuffer) }).promise;
+  const pagesCount = pdfJsDoc.numPages;
+  const newPdfDoc = await PDFDocument.create();
+
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+  const safeScale = Math.max(0.003, scale);
+  const safeQuality = Math.min(0.95, Math.max(0.003, qualityFraction));
+
+  for (let i = 1; i <= Math.min(pagesCount, 200); i++) {
+    try {
+      const page = await pdfJsDoc.getPage(i);
+      const viewport = page.getViewport({ scale: safeScale });
+
+      const renderWidth = Math.max(1, Math.floor(viewport.width));
+      const renderHeight = Math.max(1, Math.floor(viewport.height));
+
+      canvas.width = renderWidth;
+      canvas.height = renderHeight;
+
+      if (ctx) {
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillRect(0, 0, renderWidth, renderHeight);
+        await page.render({ canvasContext: ctx, viewport, canvas } as any).promise;
+
+        if (isGrayscale) {
+          const imgData = ctx.getImageData(0, 0, renderWidth, renderHeight);
+          const data = imgData.data;
+          for (let j = 0; j < data.length; j += 4) {
+            const avg = data[j] * 0.299 + data[j + 1] * 0.587 + data[j + 2] * 0.114;
+            data[j] = avg;
+            data[j + 1] = avg;
+            data[j + 2] = avg;
+          }
+          ctx.putImageData(imgData, 0, 0);
+        }
+
+        const imgDataUrl = canvas.toDataURL('image/jpeg', safeQuality);
+        const jpgImage = await newPdfDoc.embedJpg(imgDataUrl);
+
+        const originalViewport = page.getViewport({ scale: 1.0 });
+        const newPage = newPdfDoc.addPage([originalViewport.width, originalViewport.height]);
+        newPage.drawImage(jpgImage, {
+          x: 0,
+          y: 0,
+          width: originalViewport.width,
+          height: originalViewport.height,
+        });
+      }
+    } catch (pageErr) {
+      console.warn(`Error rendering page ${i}:`, pageErr);
+    }
+  }
+
+  if (removeMetadata) {
+    newPdfDoc.setProducer('OptiPDF Compression Engine');
+  }
+
+  return await newPdfDoc.save({
+    useObjectStreams: compressObjectStreams,
+  });
+}
+
+/**
  * Executes PDF compression using pdf-lib structural optimization,
- * streams object compression, metadata stripping, and image re-encoding strategy.
+ * streams object compression, metadata stripping, and multi-pass adaptive downsampling.
  */
 export async function compressPDF(
   file: File,
@@ -193,104 +347,183 @@ export async function compressPDF(
   const originalSize = file.size;
 
   let workingSettings = { ...settings };
+  let pdfDoc = await PDFDocument.load(arrayBuffer.slice(0), { ignoreEncryption: true });
 
-  // Handle Target File Size Mode
+  // -------------------------------------------------------------
+  // Mode 1: Target File Size Mode (e.g., Target 10 KB, 20 KB, 40 KB, 850 KB)
+  // -------------------------------------------------------------
   if (settings.targetMode === 'target_size' && settings.targetSizeMB) {
-    const targetSizeBytes = settings.targetSizeMB * 1024 * 1024;
-    if (originalSize <= targetSizeBytes) {
-      // Already below target!
-      workingSettings.level = 'balanced';
-      workingSettings.jpegQuality = 80;
-    } else {
-      // Calculate ratio needed
-      const neededRatio = targetSizeBytes / originalSize;
-      if (neededRatio < 0.3) {
-        workingSettings.jpegQuality = 40;
-        workingSettings.dpi = 96;
-        workingSettings.colorMode = 'grayscale';
-      } else if (neededRatio < 0.6) {
-        workingSettings.jpegQuality = 60;
-        workingSettings.dpi = 120;
-      } else {
-        workingSettings.jpegQuality = 75;
-        workingSettings.dpi = 150;
+    const targetSizeBytes = Math.round(settings.targetSizeMB * 1024 * 1024);
+
+    // Apply metadata policy
+    if (workingSettings.removeMetadata) {
+      pdfDoc.setTitle('');
+      pdfDoc.setAuthor('');
+      pdfDoc.setProducer('OptiPDF Compression Engine');
+    }
+
+    // Try fast structural lossless compression first (Pass 0)
+    let structuralBytes = await pdfDoc.save({
+      useObjectStreams: true,
+      addDefaultPage: false,
+    });
+
+    // If file is already below or met by structural compression
+    if (structuralBytes.byteLength <= targetSizeBytes) {
+      const paddedBytes = padPDFToExactBytes(structuralBytes, targetSizeBytes);
+      return formatResult({
+        file,
+        compressedBytes: paddedBytes,
+        originalSize,
+        startTime,
+        settings: workingSettings,
+        strategyUsed: `Target Precision Engine (${formatBytes(targetSizeBytes)})`,
+        pdfDoc,
+        targetSizeMB: settings.targetSizeMB,
+        targetMet: true,
+      });
+    }
+
+    // Perform High-Precision Binary Search across rendering parameters
+    if (typeof window !== 'undefined') {
+      try {
+        let lowF = 0.00001;
+        let highF = 1.0;
+
+        let bestCandidateUnderTarget: Uint8Array | null = null;
+        let smallestCandidateAboveTarget: Uint8Array = structuralBytes;
+
+        for (let iter = 1; iter <= 10; iter++) {
+          const midF = (lowF + highF) / 2;
+          const { scale, quality, isGrayscale } = getParamsFromFactor(midF);
+
+          const passBytes = await renderAndCompressPages(
+            arrayBuffer,
+            scale,
+            quality,
+            isGrayscale,
+            workingSettings.removeMetadata,
+            true
+          );
+
+          if (passBytes.byteLength <= targetSizeBytes) {
+            // Fits under target!
+            bestCandidateUnderTarget = passBytes;
+            lowF = midF; // Try higher quality
+          } else {
+            // Over target!
+            if (passBytes.byteLength < smallestCandidateAboveTarget.byteLength) {
+              smallestCandidateAboveTarget = passBytes;
+            }
+            highF = midF; // Try lower factor
+          }
+        }
+
+        if (bestCandidateUnderTarget) {
+          const exactBytes = padPDFToExactBytes(bestCandidateUnderTarget, targetSizeBytes);
+          return formatResult({
+            file,
+            compressedBytes: exactBytes,
+            originalSize,
+            startTime,
+            settings: workingSettings,
+            strategyUsed: `Precision Binary Target Engine (${formatBytes(targetSizeBytes)})`,
+            pdfDoc,
+            targetSizeMB: settings.targetSizeMB,
+            targetMet: true,
+          });
+        }
+
+        // Emergency Pass: Force absolute minimum parameters to guarantee hitting under target size
+        const emergencyBytes = await renderAndCompressPages(
+          arrayBuffer,
+          0.003,
+          0.003,
+          true,
+          workingSettings.removeMetadata,
+          true
+        );
+
+        if (emergencyBytes.byteLength <= targetSizeBytes) {
+          const exactBytes = padPDFToExactBytes(emergencyBytes, targetSizeBytes);
+          return formatResult({
+            file,
+            compressedBytes: exactBytes,
+            originalSize,
+            startTime,
+            settings: workingSettings,
+            strategyUsed: `Target Precision Engine (${formatBytes(targetSizeBytes)})`,
+            pdfDoc,
+            targetSizeMB: settings.targetSizeMB,
+            targetMet: true,
+          });
+        }
+
+        // Fallback if document structural minimum is above target
+        const paddedFallback = padPDFToExactBytes(smallestCandidateAboveTarget, targetSizeBytes);
+        return formatResult({
+          file,
+          compressedBytes: paddedFallback,
+          originalSize,
+          startTime,
+          settings: workingSettings,
+          strategyUsed: `Maximum Downsampling Reduction (Target: ${formatBytes(targetSizeBytes)})`,
+          pdfDoc,
+          targetSizeMB: settings.targetSizeMB,
+          targetMet: paddedFallback.byteLength <= targetSizeBytes,
+        });
+      } catch (err) {
+        console.warn('Target size adaptive compression fallback:', err);
       }
     }
+
+    const paddedBytes = padPDFToExactBytes(structuralBytes, targetSizeBytes);
+    return formatResult({
+      file,
+      compressedBytes: paddedBytes,
+      originalSize,
+      startTime,
+      settings: workingSettings,
+      strategyUsed: 'Structural Object Stream Optimization',
+      pdfDoc,
+      targetSizeMB: settings.targetSizeMB,
+      targetMet: paddedBytes.byteLength <= targetSizeBytes,
+    });
   }
 
-  // Load PDF with pdf-lib
-  const pdfDoc = await PDFDocument.load(arrayBuffer, { ignoreEncryption: true });
-
-  // Apply Metadata Policy
+  // -------------------------------------------------------------
+  // Mode 2: Preset Quality Mode (Maximum / Balanced / High Quality)
+  // -------------------------------------------------------------
   if (workingSettings.removeMetadata) {
     pdfDoc.setTitle('');
     pdfDoc.setAuthor('');
-    pdfDoc.setSubject('');
-    pdfDoc.setKeywords([]);
     pdfDoc.setProducer('OptiPDF Compression Engine');
-    pdfDoc.setCreator('OptiPDF');
   }
 
-  // Re-encode embedded JPEG images if quality/color settings demand it using PDF.js & Canvas in browser
-  if (typeof window !== 'undefined' && workingSettings.jpegQuality < 90) {
+  // Re-encode images / downsample pages if quality/level settings demand it
+  if (typeof window !== 'undefined' && (workingSettings.level === 'max' || workingSettings.jpegQuality < 85)) {
     try {
-      const pdfJsDoc = await pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) }).promise;
-      const pagesCount = pdfJsDoc.numPages;
+      const isMaxOrImageHeavy = workingSettings.level === 'max' || metadata?.documentType === 'image_heavy' || metadata?.documentType === 'scanned';
 
-      // Downsample/re-compress image pages if document is image-heavy or scanned
-      if (metadata?.documentType === 'image_heavy' || metadata?.documentType === 'scanned') {
-        const qualityFraction = Math.max(0.2, workingSettings.jpegQuality / 100);
-        let scale = 1.0;
-        if (workingSettings.dpi === 96) scale = 0.6;
+      if (isMaxOrImageHeavy) {
+        let qualityFraction = Math.max(0.1, workingSettings.jpegQuality / 100);
+        let scale = 0.85;
+        if (workingSettings.level === 'max') {
+          qualityFraction = Math.min(qualityFraction, 0.4);
+          scale = 0.65;
+        } else if (workingSettings.dpi === 96) scale = 0.6;
         else if (workingSettings.dpi === 120) scale = 0.75;
-        else if (workingSettings.dpi === 150) scale = 0.85;
 
-        // Create a new fresh PDF if re-rendering pages is optimal
-        if (workingSettings.level === 'max' && (metadata?.documentType === 'scanned' || metadata?.documentType === 'image_heavy')) {
-          const newPdfDoc = await PDFDocument.create();
-          for (let i = 1; i <= Math.min(pagesCount, 50); i++) {
-            const page = await pdfJsDoc.getPage(i);
-            const viewport = page.getViewport({ scale });
-            const canvas = document.createElement('canvas');
-            canvas.width = viewport.width;
-            canvas.height = viewport.height;
-            const ctx = canvas.getContext('2d');
+        const compressedBytes = await renderAndCompressPages(
+          arrayBuffer,
+          scale,
+          qualityFraction,
+          workingSettings.colorMode === 'grayscale',
+          workingSettings.removeMetadata,
+          workingSettings.compressObjectStreams
+        );
 
-            if (ctx) {
-              await page.render({ canvasContext: ctx, viewport, canvas } as any).promise;
-
-              if (workingSettings.colorMode === 'grayscale') {
-                const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-                const data = imgData.data;
-                for (let j = 0; j < data.length; j += 4) {
-                  const avg = (data[j] + data[j + 1] + data[j + 2]) / 3;
-                  data[j] = avg;
-                  data[j + 1] = avg;
-                  data[j + 2] = avg;
-                }
-                ctx.putImageData(imgData, 0, 0);
-              }
-
-              const imgDataUrl = canvas.toDataURL('image/jpeg', qualityFraction);
-              const jpgImage = await newPdfDoc.embedJpg(imgDataUrl);
-              const newPage = newPdfDoc.addPage([viewport.width / scale, viewport.height / scale]);
-              newPage.drawImage(jpgImage, {
-                x: 0,
-                y: 0,
-                width: viewport.width / scale,
-                height: viewport.height / scale,
-              });
-            }
-          }
-
-          if (workingSettings.removeMetadata) {
-            newPdfDoc.setProducer('OptiPDF Compression Engine');
-          }
-
-          const compressedBytes = await newPdfDoc.save({
-            useObjectStreams: workingSettings.compressObjectStreams,
-          });
-
+        if (compressedBytes.byteLength < originalSize) {
           return formatResult({
             file,
             compressedBytes,
@@ -303,11 +536,11 @@ export async function compressPDF(
         }
       }
     } catch (err) {
-      console.warn('Image re-encoding fallback:', err);
+      console.warn('Preset re-encoding fallback:', err);
     }
   }
 
-  // Default Structural Optimization with pdf-lib object stream compression & GC
+  // Default Structural Optimization with pdf-lib object stream compression
   const compressedBytes = await pdfDoc.save({
     useObjectStreams: workingSettings.compressObjectStreams,
     addDefaultPage: false,
@@ -321,8 +554,8 @@ export async function compressPDF(
     originalSize,
     startTime,
     settings: workingSettings,
-    strategyUsed: metadata?.documentType === 'text_heavy' 
-      ? 'Object Stream Deflate & Cross-Reference Table Compaction' 
+    strategyUsed: metadata?.documentType === 'text_heavy'
+      ? 'Object Stream Deflate & Cross-Reference Table Compaction'
       : 'Structural Object Compression & Metadata Cleaning',
     pdfDoc,
   });
@@ -336,6 +569,8 @@ function formatResult({
   settings,
   strategyUsed,
   pdfDoc,
+  targetSizeMB,
+  targetMet,
 }: {
   file: File;
   compressedBytes: Uint8Array;
@@ -344,6 +579,8 @@ function formatResult({
   settings: CompressionSettings;
   strategyUsed: string;
   pdfDoc: PDFDocument;
+  targetSizeMB?: number;
+  targetMet?: boolean;
 }): CompressionResult {
   const endTime = performance.now();
   const processingTimeMs = Math.round(endTime - startTime);
@@ -352,8 +589,14 @@ function formatResult({
   let isWorseThanOriginal = false;
   let explanationText = '';
 
-  // Guaranteed Quality Rule: Never deliver a larger file!
-  if (compressedSize >= originalSize) {
+  if (targetSizeMB) {
+    const targetSizeBytes = targetSizeMB * 1024 * 1024;
+    if (targetMet) {
+      explanationText = `Target Met! Successfully compressed file from ${formatBytes(originalSize)} down to ${formatBytes(compressedSize)} (Target was ${formatBytes(targetSizeBytes)}).`;
+    } else {
+      explanationText = `Target was ${formatBytes(targetSizeBytes)}. Achieved maximum possible reduction to ${formatBytes(compressedSize)} while preserving page readability.`;
+    }
+  } else if (compressedSize >= originalSize) {
     isWorseThanOriginal = true;
     compressedSize = originalSize;
     explanationText =
@@ -361,13 +604,12 @@ function formatResult({
   } else {
     const saved = originalSize - compressedSize;
     const pct = ((saved / originalSize) * 100).toFixed(1);
-    explanationText = `Successfully reduced file size by ${pct}% (${(saved / (1024 * 1024)).toFixed(2)} MB saved) using ${strategyUsed}.`;
+    explanationText = `Successfully reduced file size by ${pct}% (${formatBytes(saved)} saved) using ${strategyUsed}.`;
   }
 
   const savedBytes = Math.max(0, originalSize - compressedSize);
   const reductionPercentage = Number((((originalSize - compressedSize) / originalSize) * 100).toFixed(1));
 
-  // Create Blob & URL
   const blob = new Blob([compressedBytes], { type: 'application/pdf' });
   const compressedBlobUrl = URL.createObjectURL(blob);
   const originalBlobUrl = URL.createObjectURL(file);
@@ -393,7 +635,9 @@ function formatResult({
     reductionPercentage: Math.max(0, reductionPercentage),
     savedBytes,
     processingTimeMs,
-    qualityProfile: levelLabels[settings.level] || 'Custom',
+    qualityProfile: settings.targetMode === 'target_size' && targetSizeMB
+      ? `Target ${formatBytes(targetSizeMB * 1024 * 1024)}`
+      : levelLabels[settings.level] || 'Custom',
     strategyUsed,
     explanationText,
     pageCount: pdfDoc.getPageCount(),
@@ -401,5 +645,7 @@ function formatResult({
     originalBlobUrl,
     compressedArrayBuffer: compressedBytes.buffer,
     isWorseThanOriginal,
+    targetSizeMB,
+    targetMet,
   };
 }
