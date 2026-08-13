@@ -1,20 +1,25 @@
 import React, { useState, useEffect, useRef } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
+// @ts-ignore
+import pdfjsWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import {
   ChevronLeft,
   ChevronRight,
   ZoomIn,
   ZoomOut,
-  Maximize2,
-  Minimize2,
   RotateCw,
   Columns,
-  Sliders,
   X,
   Download,
   Sparkles,
+  Loader2,
+  AlertTriangle,
 } from 'lucide-react';
 import { CompressionResult } from '../types';
+
+if (typeof window !== 'undefined' && pdfjsLib.GlobalWorkerOptions) {
+  pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker;
+}
 
 interface BeforeAfterViewerProps {
   result: CompressionResult;
@@ -29,21 +34,31 @@ export const BeforeAfterViewer: React.FC<BeforeAfterViewerProps> = ({ result, on
   const [rotation, setRotation] = useState(0);
   const [viewMode, setViewMode] = useState<'split' | 'side_by_side'>('side_by_side');
   const [sliderPosition, setSliderPosition] = useState(50);
-  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [docsReady, setDocsReady] = useState(false);
+  const [loadingError, setLoadingError] = useState<string | null>(null);
 
   const origCanvasRef = useRef<HTMLCanvasElement>(null);
   const compCanvasRef = useRef<HTMLCanvasElement>(null);
   const origPdfDocRef = useRef<any>(null);
   const compPdfDocRef = useRef<any>(null);
 
-  // Load PDF documents via PDF.js
+  const origRenderTaskRef = useRef<any>(null);
+  const compRenderTaskRef = useRef<any>(null);
+
+  // Load PDF documents via PDF.js using ArrayBuffers
   useEffect(() => {
     let isSubscribed = true;
 
     async function loadPDFs() {
       try {
+        setLoadingError(null);
+        setDocsReady(false);
+
+        // 1. Load Original PDF
         if (result.originalBlobUrl) {
-          const origTask = pdfjsLib.getDocument(result.originalBlobUrl);
+          const resp = await fetch(result.originalBlobUrl);
+          const buf = await resp.arrayBuffer();
+          const origTask = pdfjsLib.getDocument({ data: new Uint8Array(buf) });
           const origDoc = await origTask.promise;
           if (isSubscribed) {
             origPdfDocRef.current = origDoc;
@@ -51,17 +66,31 @@ export const BeforeAfterViewer: React.FC<BeforeAfterViewerProps> = ({ result, on
           }
         }
 
-        if (result.compressedBlobUrl) {
-          const compTask = pdfjsLib.getDocument(result.compressedBlobUrl);
+        // 2. Load Compressed PDF
+        if (result.compressedArrayBuffer) {
+          const compTask = pdfjsLib.getDocument({ data: new Uint8Array(result.compressedArrayBuffer) });
+          const compDoc = await compTask.promise;
+          if (isSubscribed) {
+            compPdfDocRef.current = compDoc;
+          }
+        } else if (result.compressedBlobUrl) {
+          const resp = await fetch(result.compressedBlobUrl);
+          const buf = await resp.arrayBuffer();
+          const compTask = pdfjsLib.getDocument({ data: new Uint8Array(buf) });
           const compDoc = await compTask.promise;
           if (isSubscribed) {
             compPdfDocRef.current = compDoc;
           }
         }
 
-        renderCurrentPage();
-      } catch (err) {
+        if (isSubscribed) {
+          setDocsReady(true);
+        }
+      } catch (err: any) {
         console.warn('PDF load warning in viewer:', err);
+        if (isSubscribed) {
+          setLoadingError('Could not load PDF document preview. You can still download the optimized file.');
+        }
       }
     }
 
@@ -69,12 +98,26 @@ export const BeforeAfterViewer: React.FC<BeforeAfterViewerProps> = ({ result, on
 
     return () => {
       isSubscribed = false;
+      if (origRenderTaskRef.current) {
+        try { origRenderTaskRef.current.cancel(); } catch (_) {}
+      }
+      if (compRenderTaskRef.current) {
+        try { compRenderTaskRef.current.cancel(); } catch (_) {}
+      }
     };
   }, [result]);
 
-  // Render pages when page, zoom, or rotation changes
+  // Render current page onto canvases
   const renderCurrentPage = async () => {
+    if (!docsReady) return;
+
+    // Render Original Canvas
     if (origPdfDocRef.current && origCanvasRef.current) {
+      if (origRenderTaskRef.current) {
+        try {
+          origRenderTaskRef.current.cancel();
+        } catch (_) {}
+      }
       try {
         const page = await origPdfDocRef.current.getPage(currentPage);
         const viewport = page.getViewport({ scale: zoomScale, rotation });
@@ -83,14 +126,24 @@ export const BeforeAfterViewer: React.FC<BeforeAfterViewerProps> = ({ result, on
         if (ctx) {
           canvas.width = viewport.width;
           canvas.height = viewport.height;
-          await page.render({ canvasContext: ctx, viewport, canvas } as any).promise;
+          const task = page.render({ canvasContext: ctx, viewport } as any);
+          origRenderTaskRef.current = task;
+          await task.promise;
         }
-      } catch (e) {
-        console.warn('Error rendering orig page:', e);
+      } catch (e: any) {
+        if (e?.name !== 'RenderingCancelledException') {
+          console.warn('Error rendering orig page:', e);
+        }
       }
     }
 
+    // Render Compressed Canvas
     if (compPdfDocRef.current && compCanvasRef.current) {
+      if (compRenderTaskRef.current) {
+        try {
+          compRenderTaskRef.current.cancel();
+        } catch (_) {}
+      }
       try {
         const page = await compPdfDocRef.current.getPage(currentPage);
         const viewport = page.getViewport({ scale: zoomScale, rotation });
@@ -99,17 +152,23 @@ export const BeforeAfterViewer: React.FC<BeforeAfterViewerProps> = ({ result, on
         if (ctx) {
           canvas.width = viewport.width;
           canvas.height = viewport.height;
-          await page.render({ canvasContext: ctx, viewport, canvas } as any).promise;
+          const task = page.render({ canvasContext: ctx, viewport } as any);
+          compRenderTaskRef.current = task;
+          await task.promise;
         }
-      } catch (e) {
-        console.warn('Error rendering comp page:', e);
+      } catch (e: any) {
+        if (e?.name !== 'RenderingCancelledException') {
+          console.warn('Error rendering comp page:', e);
+        }
       }
     }
   };
 
   useEffect(() => {
-    renderCurrentPage();
-  }, [currentPage, zoomScale, rotation]);
+    if (docsReady) {
+      renderCurrentPage();
+    }
+  }, [currentPage, zoomScale, rotation, viewMode, docsReady]);
 
   const formatSize = (bytes: number) => {
     return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
@@ -142,7 +201,7 @@ export const BeforeAfterViewer: React.FC<BeforeAfterViewerProps> = ({ result, on
         <div className="flex items-center gap-2 bg-slate-800 p-1 rounded-xl border border-slate-700 text-xs">
           {/* Page Prev/Next */}
           <button
-            disabled={currentPage <= 1}
+            disabled={currentPage <= 1 || !docsReady}
             onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
             className="p-1.5 hover:bg-slate-700 rounded-lg disabled:opacity-30 disabled:cursor-not-allowed"
             id="btn-viewer-prev-page"
@@ -153,7 +212,7 @@ export const BeforeAfterViewer: React.FC<BeforeAfterViewerProps> = ({ result, on
             Page {currentPage} of {totalPages}
           </span>
           <button
-            disabled={currentPage >= totalPages}
+            disabled={currentPage >= totalPages || !docsReady}
             onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
             className="p-1.5 hover:bg-slate-700 rounded-lg disabled:opacity-30 disabled:cursor-not-allowed"
             id="btn-viewer-next-page"
@@ -232,7 +291,24 @@ export const BeforeAfterViewer: React.FC<BeforeAfterViewerProps> = ({ result, on
 
       {/* Main Preview Container */}
       <div className="flex-1 overflow-auto p-6 flex items-center justify-center bg-slate-950/60">
-        {viewMode === 'side_by_side' ? (
+        {loadingError ? (
+          <div className="bg-slate-900/90 border border-amber-500/30 rounded-2xl p-8 text-center max-w-md">
+            <AlertTriangle className="w-10 h-10 text-amber-400 mx-auto mb-3" />
+            <h4 className="text-white font-bold text-sm mb-1">Preview Unavailable</h4>
+            <p className="text-xs text-slate-400 mb-6">{loadingError}</p>
+            <button
+              onClick={onDownload}
+              className="px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl hover:bg-indigo-700"
+            >
+              Download PDF Directly
+            </button>
+          </div>
+        ) : !docsReady ? (
+          <div className="flex flex-col items-center gap-3 text-slate-400 text-xs">
+            <Loader2 className="w-8 h-8 animate-spin text-indigo-500" />
+            <span>Rendering side-by-side comparison...</span>
+          </div>
+        ) : viewMode === 'side_by_side' ? (
           /* SIDE BY SIDE MODE */
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full max-w-6xl max-h-full">
             {/* Original Panel */}
@@ -241,7 +317,7 @@ export const BeforeAfterViewer: React.FC<BeforeAfterViewerProps> = ({ result, on
                 <span className="px-2.5 py-1 bg-slate-800 rounded-md">Original Document</span>
                 <span className="text-slate-400">{formatSize(result.originalSize)}</span>
               </div>
-              <div className="border border-slate-800 rounded-lg overflow-hidden bg-white shadow-lg">
+              <div className="border border-slate-800 rounded-lg overflow-hidden bg-white shadow-lg flex justify-center items-center">
                 <canvas ref={origCanvasRef} className="max-w-full h-auto block" />
               </div>
             </div>
@@ -255,7 +331,7 @@ export const BeforeAfterViewer: React.FC<BeforeAfterViewerProps> = ({ result, on
                 </span>
                 <span className="text-emerald-400 font-bold">{formatSize(result.compressedSize)}</span>
               </div>
-              <div className="border border-indigo-500/30 rounded-lg overflow-hidden bg-white shadow-lg">
+              <div className="border border-indigo-500/30 rounded-lg overflow-hidden bg-white shadow-lg flex justify-center items-center">
                 <canvas ref={compCanvasRef} className="max-w-full h-auto block" />
               </div>
             </div>
@@ -268,11 +344,11 @@ export const BeforeAfterViewer: React.FC<BeforeAfterViewerProps> = ({ result, on
               <span className="text-emerald-400">Compressed ({formatSize(result.compressedSize)})</span>
             </div>
 
-            <div className="relative overflow-hidden border border-slate-800 rounded-xl bg-white max-h-[70vh]">
+            <div className="relative overflow-hidden border border-slate-800 rounded-xl bg-white max-h-[70vh] flex justify-center items-center">
               <canvas ref={origCanvasRef} className="block max-w-full h-auto" />
               {/* Overlay Compressed Canvas with Clip Path based on slider position */}
               <div
-                className="absolute inset-0 overflow-hidden"
+                className="absolute inset-0 overflow-hidden flex justify-center items-center"
                 style={{ clipPath: `inset(0 0 0 ${sliderPosition}%)` }}
               >
                 <canvas ref={compCanvasRef} className="block max-w-full h-auto" />
@@ -308,3 +384,4 @@ export const BeforeAfterViewer: React.FC<BeforeAfterViewerProps> = ({ result, on
     </div>
   );
 };
+

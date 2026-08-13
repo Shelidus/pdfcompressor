@@ -97,20 +97,20 @@ export const CompressionSettingsSelector: React.FC<CompressionSettingsSelectorPr
     let updated: CompressionSettings = { ...settings, level };
 
     if (level === 'max') {
-      updated.jpegQuality = 55;
-      updated.dpi = 96;
+      updated.jpegQuality = 88;
+      updated.dpi = 220;
       updated.removeMetadata = true;
       updated.subsetFonts = true;
       updated.compressObjectStreams = true;
     } else if (level === 'balanced') {
-      updated.jpegQuality = 75;
-      updated.dpi = 150;
+      updated.jpegQuality = 90;
+      updated.dpi = 250;
       updated.removeMetadata = true;
       updated.subsetFonts = true;
       updated.compressObjectStreams = true;
     } else if (level === 'high') {
-      updated.jpegQuality = 90;
-      updated.dpi = 220;
+      updated.jpegQuality = 95;
+      updated.dpi = 300;
       updated.removeMetadata = false;
       updated.subsetFonts = true;
       updated.compressObjectStreams = true;
@@ -122,18 +122,18 @@ export const CompressionSettingsSelector: React.FC<CompressionSettingsSelectorPr
   const getEstimates = (level: CompressionLevel) => {
     if (!originalSizeBytes) return null;
 
-    let minPct = 50;
-    let maxPct = 75;
+    let minPct = 15;
+    let maxPct = 35;
 
     if (level === 'max') {
-      minPct = 65;
-      maxPct = 85;
-    } else if (level === 'balanced') {
-      minPct = 45;
+      minPct = 35;
       maxPct = 70;
+    } else if (level === 'balanced') {
+      minPct = 15;
+      maxPct = 40;
     } else if (level === 'high') {
-      minPct = 20;
-      maxPct = 45;
+      minPct = 2;
+      maxPct = 15;
     }
 
     const origMB = originalSizeBytes / (1024 * 1024);
@@ -166,6 +166,20 @@ export const CompressionSettingsSelector: React.FC<CompressionSettingsSelectorPr
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 p-1.5 bg-slate-100 rounded-2xl border border-slate-200/80 mt-4">
           <button
             type="button"
+            onClick={() => onChange({ ...settings, targetMode: 'preset' })}
+            className={`py-3 px-4 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-2 transition-all ${
+              settings.targetMode === 'preset'
+                ? 'bg-indigo-600 text-white shadow-xs ring-2 ring-indigo-500/30'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
+            }`}
+            id="btn-mode-preset"
+          >
+            <Zap className="w-4 h-4" />
+            <span>Quality Presets (Max / Balanced / High)</span>
+          </button>
+
+          <button
+            type="button"
             onClick={() => {
               const num = parseFloat(customInputVal) || 10;
               const computedMB = customUnit === 'KB' ? num / 1024 : num;
@@ -180,20 +194,6 @@ export const CompressionSettingsSelector: React.FC<CompressionSettingsSelectorPr
           >
             <Target className="w-4 h-4" />
             <span>Type Exact Size (e.g., 10 KB)</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => onChange({ ...settings, targetMode: 'preset' })}
-            className={`py-3 px-4 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-2 transition-all ${
-              settings.targetMode === 'preset'
-                ? 'bg-white text-slate-900 shadow-xs ring-2 ring-slate-300'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
-            }`}
-            id="btn-mode-preset"
-          >
-            <Zap className="w-4 h-4 text-indigo-600" />
-            <span>Quality Presets (Max / Balanced)</span>
           </button>
         </div>
       </div>
@@ -334,9 +334,9 @@ export const CompressionSettingsSelector: React.FC<CompressionSettingsSelectorPr
               <span className="font-bold text-slate-800 text-base">Maximum</span>
               {settings.level === 'max' && <CheckCircle2 className="w-5 h-5 text-indigo-600 shrink-0" />}
             </div>
-            <p className="text-xs font-semibold text-indigo-600 mb-2">Smallest file size</p>
+            <p className="text-xs font-semibold text-indigo-600 mb-2">Higher size reduction</p>
             <p className="text-xs text-slate-500 leading-relaxed mb-4">
-              Best for email attachments and strict upload limits.
+              Compresses further than Balanced while keeping visual quality clean and sharp.
             </p>
 
             {/* Estimated result pill */}
@@ -367,9 +367,9 @@ export const CompressionSettingsSelector: React.FC<CompressionSettingsSelectorPr
               <span className="font-bold text-slate-800 text-base">Balanced</span>
               {settings.level === 'balanced' && <CheckCircle2 className="w-5 h-5 text-indigo-600 shrink-0" />}
             </div>
-            <p className="text-xs font-semibold text-indigo-600 mb-2">Optimal size & sharpness</p>
+            <p className="text-xs font-semibold text-indigo-600 mb-2">100% Lossless • Best possible quality</p>
             <p className="text-xs text-slate-500 leading-relaxed mb-4">
-              Smart downsampling for high visual fidelity and good reduction.
+              Best possible compression without losing a single drop of vector or image quality.
             </p>
 
             {/* Estimated result pill */}
@@ -396,9 +396,9 @@ export const CompressionSettingsSelector: React.FC<CompressionSettingsSelectorPr
               <span className="font-bold text-slate-800 text-base">High Quality</span>
               {settings.level === 'high' && <CheckCircle2 className="w-5 h-5 text-indigo-600 shrink-0" />}
             </div>
-            <p className="text-xs font-semibold text-emerald-600 mb-2">Maximum sharpness</p>
+            <p className="text-xs font-semibold text-emerald-600 mb-2">Minimum compression</p>
             <p className="text-xs text-slate-500 leading-relaxed mb-4">
-              Best for professional printing and archiving.
+              Minimum compression — preserves maximum resolution and original detail.
             </p>
 
             {/* Estimated result pill */}
@@ -417,9 +417,15 @@ export const CompressionSettingsSelector: React.FC<CompressionSettingsSelectorPr
       <div className="pt-3 border-t border-slate-100">
         <button
           onClick={() => {
-            setShowAdvanced(!showAdvanced);
-            if (!showAdvanced) {
-              onChange({ ...settings, level: 'custom' });
+            const nextShow = !showAdvanced;
+            setShowAdvanced(nextShow);
+            if (nextShow) {
+              onChange({
+                ...settings,
+                level: 'custom',
+                dpi: 'original',
+                jpegQuality: settings.jpegQuality || 100,
+              });
             }
           }}
           className="flex items-center justify-between w-full text-xs font-bold text-indigo-600 hover:text-indigo-800 transition-colors"
@@ -476,6 +482,8 @@ export const CompressionSettingsSelector: React.FC<CompressionSettingsSelectorPr
                 >
                   <option value="original">Keep Original Resolution</option>
                   <option value="300">300 DPI (High Print Quality)</option>
+                  <option value="250">250 DPI (High Quality)</option>
+                  <option value="220">220 DPI (Balanced Quality)</option>
                   <option value="200">200 DPI (Standard Document)</option>
                   <option value="150">150 DPI (Recommended Web/Email)</option>
                   <option value="120">120 DPI (Compact Screen)</option>

@@ -20,6 +20,7 @@ interface ResultScreenProps {
   result: CompressionResult;
   onPreview: () => void;
   onCompressAnother: () => void;
+  onTryDifferentValue: () => void;
   onRecompress?: (newLevel: 'max' | 'balanced' | 'high') => void;
 }
 
@@ -27,7 +28,7 @@ export const ResultScreen: React.FC<ResultScreenProps> = ({
   result,
   onPreview,
   onCompressAnother,
-  onRecompress,
+  onTryDifferentValue,
 }) => {
   const [outputName, setOutputName] = useState(result.outputFilename);
   const [showWhyExplainer, setShowWhyExplainer] = useState(false);
@@ -63,40 +64,6 @@ export const ResultScreen: React.FC<ResultScreenProps> = ({
           Processed in {(result.processingTimeMs / 1000).toFixed(2)}s using {result.qualityProfile} profile.
         </p>
       </div>
-
-      {/* Target Size Mode Status Banner */}
-      {result.targetSizeMB && (() => {
-        const targetBytes = Math.round(result.targetSizeMB * 1024 * 1024);
-        const isTrulyMet = Boolean(result.targetMet && result.compressedSize <= targetBytes + 10);
-        return (
-          <div
-            className={`p-4 rounded-2xl mb-6 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 border ${
-              isTrulyMet
-                ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
-                : 'bg-amber-50 border-amber-200 text-amber-900'
-            }`}
-          >
-            <div className="flex items-center gap-2.5">
-              <Zap className={`w-5 h-5 shrink-0 ${isTrulyMet ? 'text-emerald-600' : 'text-amber-600'}`} />
-              <div>
-                <span className="font-bold text-sm block">
-                  {isTrulyMet ? '🎯 Target Size Achieved!' : '⚡ Maximum Compression Applied'}
-                </span>
-                <p className="mt-0.5">
-                  Requested Target: <strong>{formatSize(targetBytes)}</strong> • Output Size: <strong>{formatSize(result.compressedSize)}</strong>
-                </p>
-              </div>
-            </div>
-            <span
-              className={`px-3 py-1.5 font-bold text-xs rounded-xl uppercase tracking-wider shrink-0 text-center ${
-                isTrulyMet ? 'bg-emerald-600 text-white' : 'bg-amber-600 text-white'
-              }`}
-            >
-              {isTrulyMet ? 'Target Met ✓' : 'Best Possible Reduction'}
-            </span>
-          </div>
-        );
-      })()}
 
       {/* Main Metric Cards Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
@@ -202,31 +169,19 @@ export const ResultScreen: React.FC<ResultScreenProps> = ({
       </div>
 
       {/* Re-compress options */}
-      {onRecompress && (
-        <div className="mt-8 pt-6 border-t border-slate-100 text-center">
-          <span className="text-xs font-semibold text-slate-500 block mb-3">Want a different result?</span>
-          <div className="flex flex-wrap items-center justify-center gap-2">
-            <button
-              onClick={() => onRecompress('max')}
-              className="px-3.5 py-1.5 bg-slate-100 hover:bg-indigo-50 text-slate-700 hover:text-indigo-700 border border-slate-200 rounded-xl text-xs font-semibold transition-colors"
-            >
-              Try Maximum Compression
-            </button>
-            <button
-              onClick={() => onRecompress('balanced')}
-              className="px-3.5 py-1.5 bg-slate-100 hover:bg-indigo-50 text-slate-700 hover:text-indigo-700 border border-slate-200 rounded-xl text-xs font-semibold transition-colors"
-            >
-              Try Balanced
-            </button>
-            <button
-              onClick={() => onRecompress('high')}
-              className="px-3.5 py-1.5 bg-slate-100 hover:bg-indigo-50 text-slate-700 hover:text-indigo-700 border border-slate-200 rounded-xl text-xs font-semibold transition-colors"
-            >
-              Try High Quality
-            </button>
-          </div>
+      <div className="mt-8 pt-6 border-t border-slate-100 text-center">
+        <span className="text-xs font-semibold text-slate-500 block mb-3">Want a different result?</span>
+        <div className="flex items-center justify-center">
+          <button
+            onClick={onTryDifferentValue}
+            id="btn-try-different-value"
+            className="px-5 py-2.5 bg-slate-100 hover:bg-indigo-50 text-slate-700 hover:text-indigo-700 border border-slate-200 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 shadow-2xs"
+          >
+            <RefreshCw className="w-3.5 h-3.5 text-indigo-600" />
+            Try Different Value
+          </button>
         </div>
-      )}
+      </div>
     </div>
   );
 };

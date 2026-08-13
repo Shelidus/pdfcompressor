@@ -37,10 +37,10 @@ export default function App() {
   // Global default compression settings
   const [settings, setSettings] = useState<CompressionSettings>({
     level: 'balanced',
-    targetMode: 'target_size',
-    targetSizeMB: 0.1, // Default 100 KB
-    jpegQuality: 75,
-    dpi: 150,
+    targetMode: 'preset',
+    targetSizeMB: 0.1, // 100 KB default when switched to exact size mode
+    jpegQuality: 100,
+    dpi: 'original',
     colorMode: 'original',
     removeMetadata: true,
     subsetFonts: true,
@@ -197,6 +197,7 @@ export default function App() {
                         setSingleResult(null);
                         setItems([]);
                       }}
+                      onTryDifferentValue={() => setSingleResult(null)}
                       onRecompress={handleRecompress}
                     />
                   ) : items.length === 1 ? (

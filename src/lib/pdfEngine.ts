@@ -277,7 +277,7 @@ async function renderAndCompressPages(
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
 
   const safeScale = Math.max(0.003, scale);
-  const safeQuality = Math.min(0.95, Math.max(0.003, qualityFraction));
+  const safeQuality = Math.min(1.0, Math.max(0.01, qualityFraction));
 
   for (let i = 1; i <= Math.min(pagesCount, 200); i++) {
     try {
@@ -494,69 +494,259 @@ export async function compressPDF(
   // -------------------------------------------------------------
   // Mode 2: Preset Quality Mode (Maximum / Balanced / High Quality)
   // -------------------------------------------------------------
+
+  // Common Metadata Cleanup for all presets
   if (workingSettings.removeMetadata) {
     pdfDoc.setTitle('');
     pdfDoc.setAuthor('');
+    pdfDoc.setSubject('');
+    pdfDoc.setKeywords([]);
     pdfDoc.setProducer('OptiPDF Compression Engine');
   }
 
-  // Re-encode images / downsample pages if quality/level settings demand it
-  if (typeof window !== 'undefined' && (workingSettings.level === 'max' || workingSettings.jpegQuality < 85)) {
-    try {
-      const isMaxOrImageHeavy = workingSettings.level === 'max' || metadata?.documentType === 'image_heavy' || metadata?.documentType === 'scanned';
+  // Compute 100% Lossless Structural Compression with Object Streams
+  const losslessStructuralBytes = await pdfDoc.save({
+    useObjectStreams: true,
+    addDefaultPage: false,
+    objectsPerTick: 100,
+    updateFieldAppearances: false,
+  });
 
-      if (isMaxOrImageHeavy) {
-        let qualityFraction = Math.max(0.1, workingSettings.jpegQuality / 100);
-        let scale = 0.85;
-        if (workingSettings.level === 'max') {
-          qualityFraction = Math.min(qualityFraction, 0.4);
-          scale = 0.65;
-        } else if (workingSettings.dpi === 96) scale = 0.6;
-        else if (workingSettings.dpi === 120) scale = 0.75;
+  // Level 1: High Quality - Light, Ultra-High Fidelity Compression
+  if (workingSettings.level === 'high') {
+    // Check if Lossless Structural Deflation yields noticeable reduction (at least 2%)
+    if (losslessStructuralBytes.byteLength < originalSize * 0.98) {
+      return formatResult({
+        file,
+        compressedBytes: losslessStructuralBytes,
+        originalSize,
+        startTime,
+        settings: workingSettings,
+        strategyUsed: '100% Lossless Stream & Object Deflation',
+        pdfDoc,
+      });
+    }
 
-        const compressedBytes = await renderAndCompressPages(
+    // For files where object streams alone don't compress (e.g. scanned image PDFs), run an ultra-high quality stream pass (1.0 scale, 0.96 JPEG quality)
+    if (typeof window !== 'undefined') {
+      try {
+        const highQualityPass = await renderAndCompressPages(
+          arrayBuffer,
+          1.0,
+          0.96,
+          workingSettings.colorMode === 'grayscale',
+          workingSettings.removeMetadata,
+          true
+        );
+
+        const bestBytes =
+          highQualityPass.byteLength < originalSize
+            ? highQualityPass
+            : losslessStructuralBytes.byteLength < originalSize
+            ? losslessStructuralBytes
+            : highQualityPass;
+
+        return formatResult({
+          file,
+          compressedBytes: bestBytes,
+          originalSize,
+          startTime,
+          settings: workingSettings,
+          strategyUsed: 'Ultra-High Fidelity Stream Compression (Scale 1.0, Quality 96%)',
+          pdfDoc,
+        });
+      } catch (err) {
+        console.warn('High quality compression fallback:', err);
+      }
+    }
+
+    return formatResult({
+      file,
+      compressedBytes: losslessStructuralBytes,
+      originalSize,
+      startTime,
+      settings: workingSettings,
+      strategyUsed: '100% Lossless Object Stream Compression',
+      pdfDoc,
+    });
+  }
+
+  // Level 2: Balanced - Best Quality & Size Balance
+  if (workingSettings.level === 'balanced') {
+    if (typeof window !== 'undefined') {
+      try {
+        const balancedPass = await renderAndCompressPages(
+          arrayBuffer,
+          1.0,
+          0.92,
+          workingSettings.colorMode === 'grayscale',
+          workingSettings.removeMetadata,
+          true
+        );
+
+        if (balancedPass.byteLength < losslessStructuralBytes.byteLength && balancedPass.byteLength < originalSize) {
+          return formatResult({
+            file,
+            compressedBytes: balancedPass,
+            originalSize,
+            startTime,
+            settings: workingSettings,
+            strategyUsed: 'Balanced High-Fidelity Optimization (Scale 1.0, Quality 92%)',
+            pdfDoc,
+          });
+        }
+      } catch (err) {
+        console.warn('Balanced compression fallback:', err);
+      }
+    }
+
+    return formatResult({
+      file,
+      compressedBytes: losslessStructuralBytes,
+      originalSize,
+      startTime,
+      settings: workingSettings,
+      strategyUsed: '100% Lossless Object Stream & Structure Compression',
+      pdfDoc,
+    });
+  }
+
+  // Level 3: Maximum - Higher Size Reduction
+  if (workingSettings.level === 'max') {
+    if (typeof window !== 'undefined') {
+      try {
+        // High-Fidelity Stream Optimization (1.0 Scale, 0.85 JPEG Quality)
+        const scale = 1.0;
+        const qualityFraction = 0.85;
+        const maxReencodedBytes = await renderAndCompressPages(
           arrayBuffer,
           scale,
           qualityFraction,
           workingSettings.colorMode === 'grayscale',
           workingSettings.removeMetadata,
-          workingSettings.compressObjectStreams
+          true
         );
 
-        if (compressedBytes.byteLength < originalSize) {
+        // Ensure Maximum achieves smaller output than Lossless Structural Bytes
+        if (maxReencodedBytes.byteLength < losslessStructuralBytes.byteLength && maxReencodedBytes.byteLength < originalSize) {
           return formatResult({
             file,
-            compressedBytes,
+            compressedBytes: maxReencodedBytes,
             originalSize,
             startTime,
             settings: workingSettings,
-            strategyUsed: 'Canvas Downsampling & JPEG Stream Re-encoding',
+            strategyUsed: 'Maximum High-Fidelity Stream Optimization (Full Scale 1.0)',
             pdfDoc,
           });
         }
+      } catch (err) {
+        console.warn('Maximum compression re-encoding fallback:', err);
       }
-    } catch (err) {
-      console.warn('Preset re-encoding fallback:', err);
     }
+
+    // Fallback for Maximum: Always ensure at least 100% Lossless Structural Bytes are returned
+    return formatResult({
+      file,
+      compressedBytes: losslessStructuralBytes,
+      originalSize,
+      startTime,
+      settings: workingSettings,
+      strategyUsed: 'Maximum Quality-Preserving Native Stream Optimization',
+      pdfDoc,
+    });
   }
 
-  // Default Structural Optimization with pdf-lib object stream compression
-  const compressedBytes = await pdfDoc.save({
+  // -------------------------------------------------------------
+  // Mode 3: Custom Fine-Tuned Advanced Settings Mode
+  // -------------------------------------------------------------
+  if (workingSettings.removeMetadata) {
+    pdfDoc.setTitle('');
+    pdfDoc.setAuthor('');
+    pdfDoc.setSubject('');
+    pdfDoc.setKeywords([]);
+    pdfDoc.setProducer('OptiPDF Fine-Tuned Engine');
+  }
+
+  const structuralBytes = await pdfDoc.save({
     useObjectStreams: workingSettings.compressObjectStreams,
     addDefaultPage: false,
     objectsPerTick: 100,
     updateFieldAppearances: false,
   });
 
+  // Calculate scale based on DPI setting
+  let scale = 1.0;
+  if (workingSettings.dpi === 'original') {
+    scale = 1.0;
+  } else if (typeof workingSettings.dpi === 'number' && workingSettings.dpi > 0) {
+    scale = Math.min(1.0, Math.max(0.1, workingSettings.dpi / 300));
+  }
+
+  const qualityFraction = Math.min(1.0, Math.max(0.05, workingSettings.jpegQuality / 100));
+  const isGrayscale = workingSettings.colorMode === 'grayscale';
+
+  // Case A: Pure 100% Lossless Request (100% JPEG Quality + Original DPI + Original Color Mode)
+  // Zero rasterization, 100% native vector text and image preservation with object stream deflation
+  const isPureLossless =
+    workingSettings.jpegQuality >= 98 &&
+    (workingSettings.dpi === 'original' || workingSettings.dpi >= 300) &&
+    !isGrayscale;
+
+  if (isPureLossless) {
+    return formatResult({
+      file,
+      compressedBytes: structuralBytes,
+      originalSize,
+      startTime,
+      settings: workingSettings,
+      strategyUsed: '100% Lossless Custom Native Optimization (Original Scale & Quality)',
+      pdfDoc,
+    });
+  }
+
+  // Case B: Custom Re-Encoding (Reduced JPEG Quality, Downsampled DPI, or Grayscale)
+  if (typeof window !== 'undefined') {
+    try {
+      const customBytes = await renderAndCompressPages(
+        arrayBuffer,
+        scale,
+        qualityFraction,
+        isGrayscale,
+        workingSettings.removeMetadata,
+        workingSettings.compressObjectStreams
+      );
+
+      const bestBytes =
+        customBytes.byteLength < originalSize
+          ? customBytes
+          : structuralBytes;
+
+      const dpiLabel = workingSettings.dpi === 'original' ? 'Original Resolution' : `${workingSettings.dpi} DPI`;
+
+      return formatResult({
+        file,
+        compressedBytes: bestBytes,
+        originalSize,
+        startTime,
+        settings: workingSettings,
+        strategyUsed:
+          bestBytes === customBytes
+            ? `Fine-Tuned Custom Engine (${workingSettings.jpegQuality}% Quality, ${dpiLabel}${isGrayscale ? ', Grayscale' : ''})`
+            : 'Custom Structural & Stream Optimization',
+        pdfDoc,
+      });
+    } catch (err) {
+      console.warn('Custom fine-tune compression error:', err);
+    }
+  }
+
   return formatResult({
     file,
-    compressedBytes,
+    compressedBytes: structuralBytes,
     originalSize,
     startTime,
     settings: workingSettings,
-    strategyUsed: metadata?.documentType === 'text_heavy'
-      ? 'Object Stream Deflate & Cross-Reference Table Compaction'
-      : 'Structural Object Compression & Metadata Cleaning',
+    strategyUsed: 'Custom Structural & Object Stream Optimization',
     pdfDoc,
   });
 }
