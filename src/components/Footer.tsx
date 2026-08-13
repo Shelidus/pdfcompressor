@@ -55,7 +55,7 @@ export const Footer: React.FC = () => {
         </div>
 
         <div className="pt-8 border-t border-slate-800 flex flex-col sm:flex-row items-center justify-between text-xs text-slate-500 gap-4">
-          <p>© {new Date().getFullYear()} OptiPDF Pro. All rights reserved.</p>
+          <p>© {new Date().getFullYear()} Shel'sPDF Pro. All rights reserved.</p>
           <p className="flex items-center gap-1">
             Designed for privacy, speed, and uncompromising quality.
           </p>
