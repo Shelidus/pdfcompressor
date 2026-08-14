@@ -1,3 +1,4 @@
+import '../polyfills';
 import React, { useState, useEffect, useRef } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 // @ts-ignore

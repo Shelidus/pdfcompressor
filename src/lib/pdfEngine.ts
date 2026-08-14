@@ -1,3 +1,4 @@
+import '../polyfills';
 import { PDFDocument } from 'pdf-lib';
 import * as pdfjsLib from 'pdfjs-dist';
 // @ts-ignore

@@ -273,8 +273,8 @@ export default function App() {
           </div>
         )}
 
-        {/* UTILITY TOOLBOX TAB (Merge, Rotate, Image to PDF) */}
-        {['merge', 'split', 'rotate', 'image_to_pdf'].includes(activeTool) && (
+        {/* UTILITY TOOLBOX TAB (Organize, Merge, Split, Rotate, Image to PDF) */}
+        {['organize', 'merge', 'split', 'rotate', 'image_to_pdf'].includes(activeTool) && (
           <PDFToolbox />
         )}
 

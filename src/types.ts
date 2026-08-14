@@ -79,7 +79,7 @@ export interface BatchItem {
   error?: string;
 }
 
-export type ActiveTool = 'compress' | 'merge' | 'split' | 'rotate' | 'image_to_pdf' | 'inspector' | 'faq';
+export type ActiveTool = 'compress' | 'merge' | 'organize' | 'split' | 'rotate' | 'image_to_pdf' | 'inspector' | 'faq';
 
 export interface FAQItem {
   question: string;
