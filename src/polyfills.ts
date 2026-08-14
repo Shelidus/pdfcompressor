@@ -97,7 +97,7 @@ if (!arrayProto.with) {
   };
 }
 
-// 5. Array.prototype.at polyfill
+// 5. Array.prototype.at, findLast, findLastIndex polyfill
 if (!arrayProto.at) {
   arrayProto.at = function <T>(this: T[], index: number): T | undefined {
     const k = index >= 0 ? index : this.length + index;
@@ -105,7 +105,44 @@ if (!arrayProto.at) {
   };
 }
 
-// 6. String.prototype.replaceAll polyfill
+if (!arrayProto.findLast) {
+  arrayProto.findLast = function <T>(
+    this: T[],
+    predicate: (value: T, index: number, array: T[]) => boolean,
+    thisArg?: any
+  ): T | undefined {
+    for (let i = this.length - 1; i >= 0; i--) {
+      if (predicate.call(thisArg, this[i], i, this)) {
+        return this[i];
+      }
+    }
+    return undefined;
+  };
+}
+
+if (!arrayProto.findLastIndex) {
+  arrayProto.findLastIndex = function <T>(
+    this: T[],
+    predicate: (value: T, index: number, array: T[]) => boolean,
+    thisArg?: any
+  ): number {
+    for (let i = this.length - 1; i >= 0; i--) {
+      if (predicate.call(thisArg, this[i], i, this)) {
+        return i;
+      }
+    }
+    return -1;
+  };
+}
+
+// 6. Object.hasOwn polyfill (Chrome 93+)
+if (typeof (Object as any).hasOwn === 'undefined') {
+  (Object as any).hasOwn = function (object: any, property: PropertyKey): boolean {
+    return Object.prototype.hasOwnProperty.call(object, property);
+  };
+}
+
+// 7. String.prototype.replaceAll polyfill
 if (!String.prototype.replaceAll) {
   String.prototype.replaceAll = function (
     this: string,
@@ -122,7 +159,15 @@ if (!String.prototype.replaceAll) {
   };
 }
 
-// 7. globalThis safety
+// 8. structuredClone fallback (Chrome 98+)
+if (typeof (window as any).structuredClone === 'undefined') {
+  (window as any).structuredClone = function (obj: any) {
+    if (obj === undefined) return undefined;
+    return JSON.parse(JSON.stringify(obj));
+  };
+}
+
+// 9. globalThis safety
 if (typeof globalThis === 'undefined') {
   (window as any).globalThis = window;
 }

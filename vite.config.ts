@@ -7,9 +7,15 @@ export default defineConfig(() => {
   return {
     plugins: [react(), tailwindcss()],
     resolve: {
-      alias: {
-        '@': path.resolve(__dirname, '.'),
-      },
+      alias: [
+        { find: '@', replacement: path.resolve(__dirname, '.') },
+        { find: /^pdfjs-dist$/, replacement: path.resolve(__dirname, 'node_modules/pdfjs-dist/legacy/build/pdf.mjs') },
+        { find: /^pdfjs-dist\/build\/pdf\.worker\.min\.mjs$/, replacement: path.resolve(__dirname, 'node_modules/pdfjs-dist/legacy/build/pdf.worker.min.mjs') },
+        { find: /^pdfjs-dist\/legacy\/build\/pdf\.worker\.min\.mjs$/, replacement: path.resolve(__dirname, 'node_modules/pdfjs-dist/legacy/build/pdf.worker.min.mjs') },
+      ],
+    },
+    esbuild: {
+      target: 'chrome80',
     },
     build: {
       target: ['es2020', 'chrome80', 'edge88', 'firefox78', 'safari14'],

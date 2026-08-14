@@ -3,12 +3,147 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>My Google AI Studio App</title>
-    <meta name="description" content="An application built with Google AI Studio." />
-    <meta property="og:title" content="My Google AI Studio App" />
-    <meta property="og:description" content="An application built with Google AI Studio." />
-    <meta property="og:type" content="website" />
-    <meta name="twitter:card" content="summary_large_image" />
+    <title>OptiPDF - Smart PDF Compression & Tools</title>
+    <meta name="description" content="Lossless & high-ratio client-side and server-side PDF compressor and tool suite." />
+    
+    <!-- Early inline Polyfills for Legacy Browsers (Chrome <= 116, Firefox <= 120, Safari <= 17) -->
+    <script>
+      (function() {
+        if (typeof globalThis === 'undefined') {
+          window.globalThis = window;
+        }
+
+        // 1. Promise.withResolvers (Chrome 119+)
+        if (typeof Promise.withResolvers === 'undefined') {
+          Promise.withResolvers = function() {
+            var resolve, reject;
+            var promise = new Promise(function(res, rej) {
+              resolve = res;
+              reject = rej;
+            });
+            return { promise: promise, resolve: resolve, reject: reject };
+          };
+        }
+
+        // 2. Object.groupBy (Chrome 117+)
+        if (typeof Object.groupBy === 'undefined') {
+          Object.groupBy = function(items, callback) {
+            var result = {};
+            var index = 0;
+            var it = Array.isArray(items) ? items : Array.from(items || []);
+            for (var i = 0; i < it.length; i++) {
+              var key = callback(it[i], i);
+              if (!result[key]) {
+                result[key] = [];
+              }
+              result[key].push(it[i]);
+            }
+            return result;
+          };
+        }
+
+        // 3. Map.groupBy (Chrome 117+)
+        if (typeof Map.groupBy === 'undefined') {
+          Map.groupBy = function(items, callback) {
+            var result = new Map();
+            var it = Array.isArray(items) ? items : Array.from(items || []);
+            for (var i = 0; i < it.length; i++) {
+              var key = callback(it[i], i);
+              if (!result.has(key)) {
+                result.set(key, []);
+              }
+              result.get(key).push(it[i]);
+            }
+            return result;
+          };
+        }
+
+        // 4. Array.prototype extensions
+        var ap = Array.prototype;
+        if (!ap.at) {
+          ap.at = function(index) {
+            var k = index >= 0 ? index : this.length + index;
+            return k >= 0 && k < this.length ? this[k] : undefined;
+          };
+        }
+        if (!ap.toReversed) {
+          ap.toReversed = function() {
+            return this.slice().reverse();
+          };
+        }
+        if (!ap.toSorted) {
+          ap.toSorted = function(compareFn) {
+            return this.slice().sort(compareFn);
+          };
+        }
+        if (!ap.toSpliced) {
+          ap.toSpliced = function(start, deleteCount) {
+            var copy = this.slice();
+            var items = Array.prototype.slice.call(arguments, 2);
+            if (typeof deleteCount === 'undefined') {
+              copy.splice(start);
+            } else {
+              copy.splice.apply(copy, [start, deleteCount].concat(items));
+            }
+            return copy;
+          };
+        }
+        if (!ap.with) {
+          ap.with = function(index, value) {
+            var copy = this.slice();
+            var actualIndex = index < 0 ? copy.length + index : index;
+            if (actualIndex >= 0 && actualIndex < copy.length) {
+              copy[actualIndex] = value;
+            }
+            return copy;
+          };
+        }
+        if (!ap.findLast) {
+          ap.findLast = function(callback, thisArg) {
+            for (var i = this.length - 1; i >= 0; i--) {
+              if (callback.call(thisArg, this[i], i, this)) return this[i];
+            }
+            return undefined;
+          };
+        }
+        if (!ap.findLastIndex) {
+          ap.findLastIndex = function(callback, thisArg) {
+            for (var i = this.length - 1; i >= 0; i--) {
+              if (callback.call(thisArg, this[i], i, this)) return i;
+            }
+            return -1;
+          };
+        }
+
+        // 5. Object.hasOwn (Chrome 93+)
+        if (typeof Object.hasOwn === 'undefined') {
+          Object.hasOwn = function(object, property) {
+            return Object.prototype.hasOwnProperty.call(object, property);
+          };
+        }
+
+        // 6. String.prototype.replaceAll (Chrome 85+)
+        if (!String.prototype.replaceAll) {
+          String.prototype.replaceAll = function(search, replacement) {
+            if (search instanceof RegExp) {
+              if (!search.global) {
+                throw new TypeError('String.prototype.replaceAll called with a non-global RegExp');
+              }
+              return this.replace(search, replacement);
+            }
+            return this.split(search).join(replacement);
+          };
+        }
+
+        // 7. structuredClone (Chrome 98+)
+        if (typeof structuredClone === 'undefined') {
+          window.structuredClone = function(obj) {
+            if (obj === undefined) return undefined;
+            return JSON.parse(JSON.stringify(obj));
+          };
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
